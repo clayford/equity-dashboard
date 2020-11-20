@@ -11,6 +11,7 @@
 # 5. Read in crosswalk and join
 # 6. Define color palettes
 # 7. Save for app
+# 8. CF Edits
 ####################################################
 
 
@@ -226,6 +227,119 @@ rm(ccode, geo, blkgrp_geo, lifeexp_tract, lifeexp_county, seg_county,
 
 save.image(file = "data/app_data.Rdata") 
 save.image(file = "cville-region/www/app_data.Rdata")
-# load("data/app_data.Rdata")
+# load("cville-region/www/app_data.Rdata")
 
+
+# ....................................................
+# 8. CF Edits ----
+
+# combine into one data frame
+all_data <- bind_rows("County" = county_data_geo, 
+                      "Block Group" = blkgrp_data_geo, 
+                      "Census Tract" = tract_data_geo, 
+                      .id = "GEO_LEVEL")
+
+# fix 3 var names
+j <- match(pretty2$varname, names(all_data))
+pretty2$varname[which(is.na(j))] <- c("hhinc_whiteM", "hhinc_ltnxE", "hhinc_ltnxM")
+j <- match(pretty2$varname, names(all_data))
+
+# add pretty labels, sources and about to all_data
+
+for(i in seq_along(j)){
+  attr(all_data[[j[i]]], which = "goodname") <- pretty2$goodname[i]
+  attr(all_data[[j[i]]], which = "source") <- pretty2$source[i]
+  attr(all_data[[j[i]]], which = "about") <- pretty2$about[i]
+}
+
+
+unique(all_data$GEO_LEVEL)
+# [1] "County"       "Block Group"  "Census Tract"
+
+# create data frame of group and varnames
+group_df <- pretty2 %>% 
+  select(varname, group, goodname) %>% 
+  filter(!is.na(group)) 
+# categories <- unique(group_df$group)
+
+# create indicator lists based on geography
+# Block group
+ind_bg <- all_data %>% 
+  filter(GEO_LEVEL == "Block Group") %>% 
+  select(group_df$varname) %>% 
+  map_lgl(~ !all(is.na(.x))) 
+# census tract
+ind_ct <- all_data %>% 
+  filter(GEO_LEVEL == "Census Tract") %>% 
+  select(group_df$varname) %>% 
+  map_lgl(~ !all(is.na(.x))) 
+
+# add indicator logicals to group_df and sort
+# column bg - TRUE if variable available for Block Group
+# column ct - TRUE if variable available for Census Tract
+# all vars available for County
+group_df <- cbind(group_df, bg = ind_bg[-length(ind_bg)], 
+                  ct = ind_ct[-length(ind_ct)]) %>% 
+  arrange(group, goodname)
+
+# different lists of available indicators by geo level
+ind_choices_county <- split(group_df, group_df$group) %>% 
+  map(function(x)pull(x, varname, name = goodname))
+
+ind_choices_bg <- split(group_df, group_df$group) %>% 
+  map(function(x)filter(x, bg)) %>% 
+  map(function(x)pull(x, varname, name = goodname))
+
+ind_choices_ct <- split(group_df, group_df$group) %>% 
+  map(function(x)filter(x, ct)) %>% 
+  map(function(x)pull(x, varname, name = goodname))
+
+counties <- levels(factor(tract_data_geo$county.nice))
+
+# conditional time (year) selections
+# get vars that have all years:
+year_ind <- all_data %>% 
+  select(group_df$varname, year) %>% 
+  split(all_data$year) %>% 
+  map(.f = function(x)map(x, function(y)!all(is.na(y)))) %>% 
+  bind_rows() %>% 
+  select(-year, -geometry) %>% 
+  map_lgl(.f = function(x)all(x)) %>% 
+  `[`(group_df$varname, .)
+
+# get years
+years <- sort(unique(all_data$year))
+
+
+# arrange for plotting by race: 
+race_comp <- all_data %>% 
+  st_drop_geometry() %>% 
+  filter(GEO_LEVEL == "County") %>% 
+  select(GEOID, NAME, year,
+         hhinc_blackE:hhinc_ltnxM, 
+         lifeexp_blackE:lifeexp_asianM) %>% 
+  pivot_longer(hhinc_blackE:lifeexp_asianM, names_to = "var", values_to = "value") %>% 
+  separate(var, into=c("var", "type"), sep=-1) %>% 
+  separate(var, into=c("var", "race"), sep="_") %>% 
+  separate(NAME, into=c("NAME", "state"), sep=", ") %>% 
+  mutate(race = fct_recode(race,
+                           "Black"="black", 
+                           "Asian"="asian", 
+                           "Hispanic"="ltnx", 
+                           "Multi-racial"="multi",
+                           "White"="white")) %>% 
+  filter(type == "E") %>% 
+  unite("var", var, type, sep = "") 
+
+race_vars <- unique(race_comp$var)
+
+# get helpers
+source('datacode/helpers.R')
+
+# create new app_data.Rdata file
+save(counties_geo, counties, all_data, mycolors, 
+     parks_sf, schools_sf, sabselem_sf, mcd_sf, group_df,
+     ind_choices_county, ind_choices_bg, ind_choices_ct,
+     years, year_ind, helpers, race_comp, race_vars,
+     file = "cville-region/www/app_data2.Rdata")
 

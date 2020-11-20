@@ -12,11 +12,12 @@ library(leaflet)
 library(plotly)
 library(sf)
 library(DT)
+library(RColorBrewer)
+library(scales)
 
 # library(sp) # don't think we need this
 # library(shinythemes) # this might be for the sidebar/story widgets, or just a holdover from an earlier version
-# library(RColorBrewer)
-# library(scales)
+
 
 
 # Load data, final prep ----
